@@ -60,10 +60,13 @@ from .miot.miot_storage import (
 from .miot.miot_spec import (
     MIoTSpecInstance, MIoTSpecParser, MIoTSpecService)
 from .miot.const import (
-    DEFAULT_INTEGRATION_LANGUAGE, DOMAIN, SUPPORTED_PLATFORMS)
+    CONF_CLOUD_POLL_DEVICE_IDS, CONF_CLOUD_POLL_INTERVAL,
+    DEFAULT_CLOUD_POLL_INTERVAL, DEFAULT_INTEGRATION_LANGUAGE, DOMAIN,
+    SUPPORTED_PLATFORMS)
 from .miot.miot_error import MIoTOauthError
 from .miot.miot_device import MIoTDevice
 from .miot.miot_client import MIoTClient, get_miot_instance_async
+from .miot.miot_cloud_poll import MIoTCloudPoller
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +78,8 @@ async def async_setup(hass: HomeAssistant, hass_config: dict) -> bool:
     hass.data[DOMAIN].setdefault('miot_clients', {})
     # {[entry_id:str]: list[MIoTDevice]}
     hass.data[DOMAIN].setdefault('devices', {})
+    # {[entry_id:str]: MIoTCloudPoller}
+    hass.data[DOMAIN].setdefault('cloud_pollers', {})
     # {[entry_id:str]: entities}
     hass.data[DOMAIN].setdefault('entities', {})
     for platform in SUPPORTED_PLATFORMS:
@@ -267,6 +272,19 @@ async def async_setup_entry(
         await spec_parser.deinit_async()
         await manufacturer.deinit_async()
 
+        cloud_poll_device_ids = set(entry_data.get(
+            CONF_CLOUD_POLL_DEVICE_IDS, []))
+        if cloud_poll_device_ids:
+            cloud_poller = MIoTCloudPoller(
+                miot_client=miot_client,
+                devices=miot_devices,
+                selected_dids=cloud_poll_device_ids,
+                interval=entry_data.get(
+                    CONF_CLOUD_POLL_INTERVAL,
+                    DEFAULT_CLOUD_POLL_INTERVAL))
+            if cloud_poller.start():
+                hass.data[DOMAIN]['cloud_pollers'][entry_id] = cloud_poller
+
     except MIoTOauthError as oauth_error:
         ha_persistent_notify(
             notify_id=f'{entry_id}.oauth_error',
@@ -284,19 +302,27 @@ async def async_unload_entry(
 ) -> bool:
     """Unload the entry."""
     entry_id = config_entry.entry_id
+    cloud_poller: Optional[MIoTCloudPoller] = hass.data[DOMAIN][
+        'cloud_pollers'].get(entry_id)
+    if cloud_poller:
+        await cloud_poller.stop()
     # Unload the platform
     unload_ok = await hass.config_entries.async_unload_platforms(
         config_entry, SUPPORTED_PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN]['entities'].pop(entry_id, None)
-        hass.data[DOMAIN]['devices'].pop(entry_id, None)
+    if not unload_ok:
+        if cloud_poller:
+            cloud_poller.start()
+        return False
+    hass.data[DOMAIN]['cloud_pollers'].pop(entry_id, None)
+    hass.data[DOMAIN]['entities'].pop(entry_id, None)
+    hass.data[DOMAIN]['devices'].pop(entry_id, None)
     # Remove integration data
     miot_client: MIoTClient = hass.data[DOMAIN]['miot_clients'].pop(
         entry_id, None)
     if miot_client:
         await miot_client.deinit_async()
     del miot_client
-    return True
+    return unload_ok
 
 
 async def async_remove_entry(

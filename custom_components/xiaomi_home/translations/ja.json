@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "デバイスの状態変化通知を表示",
                     "update_trans_rules": "エンティティ変換ルールを更新する",
                     "update_lan_ctrl_config": "LAN制御構成を更新する",
+                    "update_cloud_poll_config": "クラウド状態ポーリングを更新する",
                     "network_detect_config": "統合ネットワーク構成",
                     "cover_dead_zone_width": "カーテンの死角幅"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "デバイスをフィルタリング",
                     "device_list": "デバイスリスト",
                     "statistics_logic": "統計ロジック"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "クラウド状態ポーリング",
+                "description": "Xiaomi Cloud を通じてエンティティのプロパティを定期的に更新するデバイスを選択します。Wi-Fi と Bluetooth デバイスに対応しますが、返される値は Xiaomi Cloud が把握している最新状態であり、デバイスからのリアルタイム直接読み取りではない場合があります。\r\n\r\nポーリング間隔は {min_interval}～{max_interval} 秒で設定してください。",
+                "data": {
+                    "cloud_poll_device_ids": "ポーリングするデバイス",
+                    "cloud_poll_interval": "ポーリング間隔（秒）"
                 }
             },
             "update_trans_rules": {

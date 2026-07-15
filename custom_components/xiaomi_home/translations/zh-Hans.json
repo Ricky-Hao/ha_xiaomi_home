@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "显示设备状态变化通知",
                     "update_trans_rules": "更新实体转换规则",
                     "update_lan_ctrl_config": "更新局域网控制配置",
+                    "update_cloud_poll_config": "更新云端状态轮询配置",
                     "network_detect_config": "集成网络配置",
                     "cover_dead_zone_width": "窗帘盲区宽度"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "筛选设备",
                     "device_list": "设备列表",
                     "statistics_logic": "统计逻辑"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "云端状态轮询",
+                "description": "选择需要通过小米云定期刷新实体属性的设备。Wi-Fi 和蓝牙设备均可选择，但返回值是小米云已知的最新状态，可能不是对物理设备的实时直读结果。\r\n\r\n轮询间隔必须在 {min_interval} 到 {max_interval} 秒之间。选择较多设备或较短的间隔会增加小米云 API 请求量。",
+                "data": {
+                    "cloud_poll_device_ids": "需要轮询的设备",
+                    "cloud_poll_interval": "轮询间隔（秒）"
                 }
             },
             "update_trans_rules": {

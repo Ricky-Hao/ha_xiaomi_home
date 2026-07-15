@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "Apparaatstatuswijzigingen weergeven",
                     "update_trans_rules": "Werk entiteitsconversieregels bij",
                     "update_lan_ctrl_config": "Werk LAN controleconfiguratie bij",
+                    "update_cloud_poll_config": "Cloudstatuspolling bijwerken",
                     "network_detect_config": "Geïntegreerde Netwerkconfiguratie",
                     "cover_dead_zone_width": "Breedte van de dode hoek van het gordijn"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "Apparaten filteren",
                     "device_list": "Apparaatlijst",
                     "statistics_logic": "Statistische logica"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "Cloudstatuspolling",
+                "description": "Selecteer apparaten waarvan de entiteitseigenschappen periodiek via Xiaomi Cloud moeten worden vernieuwd. Wi-Fi- en Bluetooth-apparaten worden ondersteund, maar de geretourneerde waarde is de laatst bekende status in Xiaomi Cloud en mogelijk geen directe realtime uitlezing.\r\n\r\nHet interval moet tussen {min_interval} en {max_interval} seconden liggen.",
+                "data": {
+                    "cloud_poll_device_ids": "Te pollen apparaten",
+                    "cloud_poll_interval": "Pollinginterval (seconden)"
                 }
             },
             "update_trans_rules": {

@@ -40,6 +40,7 @@ def load_py_file():
         'common.py',
         'const.py',
         'miot_cloud.py',
+        'miot_cloud_poll.py',
         'miot_error.py',
         'miot_i18n.py',
         'miot_lan.py',

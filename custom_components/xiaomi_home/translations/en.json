@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "Display device status change notifications",
                     "update_trans_rules": "Update entity conversion rules",
                     "update_lan_ctrl_config": "Update LAN control configuration",
+                    "update_cloud_poll_config": "Update cloud state polling",
                     "network_detect_config": "Integrated network configuration",
                     "cover_dead_zone_width": "Cover dead zone width"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "Filter Devices",
                     "device_list": "Device List",
                     "statistics_logic": "Statistics Logic"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "Cloud State Polling",
+                "description": "Select devices whose entity properties should be refreshed periodically through Xiaomi Cloud. This supports Wi-Fi and Bluetooth devices, but the returned value is the latest state known by Xiaomi Cloud and may not be a real-time direct device reading.\r\n\r\nThe polling interval must be between {min_interval} and {max_interval} seconds. Selecting many devices or a short interval increases Xiaomi Cloud API traffic.",
+                "data": {
+                    "cloud_poll_device_ids": "Devices to poll",
+                    "cloud_poll_interval": "Polling interval (seconds)"
                 }
             },
             "update_trans_rules": {
