@@ -1,11 +1,13 @@
 """Offline launcher regression tests; dummy values never contact services."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import runtime
 
@@ -24,10 +26,62 @@ class RuntimeTests(unittest.TestCase):
         encoded = json.dumps(config)
         for value in self.values.values():
             self.assertNotIn(value, encoded)
-        self.assertEqual(config['model'], 'workspace/configured')
-        self.assertEqual(config['share'], 'disabled')
-        self.assertEqual(config['permission'], {'*': 'deny'})
-        self.assertEqual(config['mcp'], {})
+        self.assertEqual(config['model'], {'providerID': 'copilot',
+                                          'model': 'gpt-6-astra', 'variant': 'medium'})
+        self.assertEqual(len(config['providers']['copilot']['models']), 9)
+        self.assertEqual(config['mcp']['servers'], {})
+        self.assertNotIn('provider', config)  # Never silently use the v1 schema.
+        self.assertEqual(runtime.readiness_environment(config), {
+            'OPENCODE_ACP_REQUIRED_MODEL': 'copilot/gpt-6-astra',
+            'OPENCODE_ACP_REQUIRED_VARIANT': 'medium',
+            'OPENCODE_ACP_CATALOG_TIMEOUT_MS': '30000'})
+
+    def test_reference_config_defaults_and_headers(self):
+        template = json.loads(runtime.TEMPLATE.read_text())
+        for name, server in template['mcp']['servers'].items():
+            self.assertTrue(server['disabled'])
+            self.assertFalse(server['oauth'])
+            header = 'Authorization' if name == 'context7' else 'X-MCP-API-Key'
+            self.assertEqual(list(server['headers']), [header])
+        self.assertEqual(template['compaction'], {'buffer': 13600})
+        self.assertEqual(template['providers']['copilot']['package'],
+                         '@opencode/ai/providers/openai/responses')
+
+    def test_copied_catalog_matches_reference(self):
+        config = json.loads(runtime.TEMPLATE.read_text())
+        digest = hashlib.sha256(json.dumps(
+            config['providers']['copilot']['models'], sort_keys=True).encode()).hexdigest()
+        self.assertEqual(digest,
+                         '0c04351f5ad2436498e638cffd04d1e10599e26ff6a24419dc31978ec2b40f3d')
+
+    def test_launches_reused_binary_with_v2_config_and_readiness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'config').mkdir()
+            with patch.object(runtime, 'STATE', state), \
+                    patch.object(runtime, 'verify_tools') as verify, \
+                    patch.object(runtime, 'prepare'), \
+                    patch.object(runtime.os, 'environ', self.values), \
+                    patch.object(runtime.sys, 'argv', ['runtime.py', 'opencode', 'acp']), \
+                    patch.object(runtime.os, 'execve') as execute:
+                runtime.main()
+            verify.assert_called_once_with(binary=False)
+            executable, argv, env = execute.call_args.args
+            self.assertEqual(executable, runtime.TOOLS / 'node/bin/opencode')
+            self.assertEqual(argv, [str(executable), 'acp'])
+            self.assertEqual(env['OPENCODE_ACP_REQUIRED_MODEL'], 'copilot/gpt-6-astra')
+            self.assertNotIn('OPENCODE_CONFIG_CONTENT', env)
+            config = state / 'config/opencode/opencode.json'
+            self.assertNotIn(self.values['LLM_API_KEY'], config.read_text())
+            self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
+
+    def test_wrong_toolchain_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'build.json').write_text(json.dumps({
+                'identity': {'baseVersion': '1.18.34'}, 'binarySha256': 'bad'}))
+            with self.assertRaises(ValueError):
+                runtime.verify_tools(root)
 
     def test_missing_llm_values_refused(self):
         for key in runtime.LLM_KEYS:
@@ -55,15 +109,16 @@ class RuntimeTests(unittest.TestCase):
     def test_mcp_requires_explicit_enable(self):
         self.values.update({'GITHUB_MCP_URL': 'https://mcp.example.invalid/mcp',
                             'GITHUB_MCP_API_KEY': 'dummy-mcp-credential'})
-        self.assertEqual(runtime.configuration(self.values)['mcp'], {})
+        self.assertEqual(runtime.configuration(self.values)['mcp']['servers'], {})
         self.values['GITHUB_MCP_ENABLED'] = '1'
-        config = runtime.configuration(self.values)['mcp']['github']
+        config = runtime.configuration(self.values)['mcp']['servers']['github']
         self.assertFalse(config['oauth'])
-        self.assertEqual(config['headers']['Authorization'],
-                         'Bearer {env:GITHUB_MCP_API_KEY}')
+        self.assertFalse(config['disabled'])
+        self.assertEqual(config['headers']['X-MCP-API-Key'],
+                         '{env:GITHUB_MCP_API_KEY}')
         self.values['GITHUB_MCP_AUTH_HEADER'] = 'X-API-Key'
         self.values['GITHUB_MCP_AUTH_SCHEME'] = ''
-        config = runtime.configuration(self.values)['mcp']['github']
+        config = runtime.configuration(self.values)['mcp']['servers']['github']
         self.assertEqual(config['headers']['X-API-Key'], '{env:GITHUB_MCP_API_KEY}')
 
     def test_enabled_mcp_requires_credentials(self):
@@ -76,7 +131,7 @@ class RuntimeTests(unittest.TestCase):
             self.values.update({f'{name}_MCP_ENABLED': '1',
                                 f'{name}_MCP_URL': 'https://mcp.example.invalid/mcp',
                                 f'{name}_MCP_API_KEY': 'dummy-mcp-credential'})
-        self.assertEqual(len(runtime.configuration(self.values)['mcp']), 4)
+        self.assertEqual(len(runtime.configuration(self.values)['mcp']['servers']), 4)
 
     def test_environment_allowlist(self):
         self.values.update({'CODER_AGENT_TOKEN': 'must-not-inherit',
