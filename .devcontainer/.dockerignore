@@ -1,8 +1,8 @@
-# An allowlist prevents local credentials/logs from entering image layers.
+# Image-mode Envbuilder only needs its generated files, not project contents.
 **
-!Dockerfile
 !.dockerignore
-!acp/
-!acp/runtime.py
-!acp/launch.sh
-!acp/opencode.template.json
+# Envbuilder v1.3.0 PUSH_IMAGE appends COPY for exactly these generated files.
+!.envbuilder.tmp/
+.envbuilder.tmp/**
+!.envbuilder.tmp/envbuilder
+!.envbuilder.tmp/image
