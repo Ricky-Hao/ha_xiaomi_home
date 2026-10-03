@@ -3,3 +3,28 @@ __pycache__
 .vscode
 .idea
 requirements.txt
+
+# Local credentials, tool state, and Home Assistant test data.
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+secrets.yaml
+auth.json
+.mcp.json
+.acpx/
+.opencode/
+.private/
+.runtime-ssh/
+.venv/
+node_modules/
+*.log
+*.sqlite*
+*.db
+.ha-config/
+test_config/
+# Runtime OpenCode/acpx config belongs outside this public repository.
+opencode.json
+opencode.jsonc
+.acpxrc.json
