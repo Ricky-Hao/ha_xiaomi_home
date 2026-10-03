@@ -1,16 +1,22 @@
 """Environment-only ACP launcher; never persist resolved credentials."""
 
+import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 import stat
 import sys
 from urllib.parse import urlsplit
 
 STATE = Path('/workspaces/.private/ha-xiaomi-home-acp')
-TOOLS = Path('/opt/acp/node_modules/.bin')
+TOOLS = Path('/opt/acp/toolset')
+TEMPLATE = Path(__file__).with_name('opencode.template.json')
+SOURCE_ID = '39caca86b63514b024ce96d503721a5863442b56a171dc9cfecbfe06f34f4bf7'
+BINARY_SHA256 = 'dd0b0bb190bd89233de7b1ba7972af901c0113bae55e9427b65b3431794a5b9a'
+PATCH_SHA256 = '8930ee92a7d7d732bb2175466740ac82a0b604c22ce88a9de99403438f306400'
 MCP_NAMES = ('CONTEXT7', 'FIRECRAWL', 'GITHUB', 'GITHUB_ACTIONS')
-LLM_KEYS = ('LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL_ID')
+LLM_KEYS = ('LLM_API_KEY', 'LLM_BASE_URL')
 MCP_SUFFIXES = ('URL', 'API_KEY', 'ENABLED', 'AUTH_HEADER', 'AUTH_SCHEME')
 ENV_KEYS = LLM_KEYS + tuple(
     f'{name}_MCP_{suffix}' for name in MCP_NAMES for suffix in MCP_SUFFIXES)
@@ -41,44 +47,32 @@ def configuration(environ):
     for key in LLM_KEYS:
         safe_value(environ.get(key, ''))
     safe_url(environ['LLM_BASE_URL'])
-    config = {
-        '$schema': 'https://opencode.ai/config.json',
-        'autoupdate': False,
-        'share': 'disabled',
-        'permission': {'*': 'deny'},
-        'enabled_providers': ['workspace'],
-        'model': 'workspace/configured',
-        'small_model': 'workspace/configured',
-        'provider': {'workspace': {
-            'npm': '@ai-sdk/openai-compatible',
-            'name': 'Environment-configured provider',
-            'options': {
-                'baseURL': '{env:LLM_BASE_URL}',
-                'apiKey': '{env:LLM_API_KEY}'},
-            'models': {'configured': {
-                'id': '{env:LLM_MODEL_ID}', 'name': 'Configured model'}}}},
-        'mcp': {}}
+    config = json.loads(TEMPLATE.read_text())
+    servers = config['mcp']['servers']
     for name in MCP_NAMES:
         prefix = f'{name}_MCP_'
         enabled = environ.get(prefix + 'ENABLED', '0')
         if enabled not in ('0', '1'):
             raise ValueError('invalid MCP enable flag')
+        server_name = name.lower().replace('_', '-')
         if enabled != '1':
+            del servers[server_name]
             continue
+        server = servers[server_name]
         safe_url(environ.get(prefix + 'URL', ''))
         safe_value(environ.get(prefix + 'API_KEY', ''))
-        header = environ.get(prefix + 'AUTH_HEADER', 'Authorization')
+        default_header = next(iter(server['headers']))
+        header = environ.get(prefix + 'AUTH_HEADER', default_header)
         if not header or not all(char.isascii() and (
                 char.isalnum() or char == '-') for char in header):
             raise ValueError('invalid header name')
-        scheme = environ.get(prefix + 'AUTH_SCHEME', 'Bearer')
+        scheme = environ.get(prefix + 'AUTH_SCHEME',
+                             'Bearer' if header == 'Authorization' else '')
         if scheme and (not scheme.isascii() or not scheme.isalnum()):
             raise ValueError('invalid auth scheme')
         token = '{env:' + prefix + 'API_KEY}'
-        config['mcp'][name.lower()] = {
-            'type': 'remote', 'url': '{env:' + prefix + 'URL}',
-            'oauth': False, 'enabled': True,
-            'headers': {header: (scheme + ' ' if scheme else '') + token}}
+        server['disabled'] = False
+        server['headers'] = {header: (scheme + ' ' if scheme else '') + token}
     return config
 
 
@@ -106,7 +100,11 @@ def prepare(state=STATE):
         'nonInteractivePermissions': 'deny',
         'authPolicy': 'skip',
         'agents': {'opencode': {'argv': ['/usr/local/bin/opencode', 'acp']}}}
-    path = state / '.acpx/config.json'
+    safe_json(state / '.acpx/config.json', config)
+
+
+def safe_json(path, config):
+    """Write references only, without following links or adopting foreign files."""
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, 'w') as stream:
         info = os.fstat(stream.fileno())
@@ -124,7 +122,7 @@ def environment(environ, state=STATE):
     child = {key: environ[key] for key in ENV_KEYS if key in environ}
     child.update({
         'HOME': str(state),
-        'PATH': '/usr/local/bin:/usr/bin:/bin',
+        'PATH': f'{TOOLS}/node/bin:{TOOLS}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin',
         'LANG': 'C.UTF-8',
         'TERM': environ.get('TERM', 'xterm-256color'),
         'XDG_CONFIG_HOME': str(state / 'config'),
@@ -136,11 +134,51 @@ def environment(environ, state=STATE):
     return child
 
 
+def verify_tools(tools=TOOLS, binary=False):
+    """Verify the original manifest; optionally hash/test the reused executables."""
+    manifest = json.loads((tools / 'build.json').read_text())
+    identity = manifest['identity']
+    if (hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest() != SOURCE_ID
+            or identity['baseVersion'] != '2.0.19'
+            or identity['patchHash'] != PATCH_SHA256
+            or manifest['binarySha256'] != BINARY_SHA256):
+        raise ValueError('patched toolset identity mismatch')
+    if not binary:
+        return
+    with (tools / 'node/bin/opencode').open('rb') as stream:
+        if hashlib.file_digest(stream, 'sha256').hexdigest() != BINARY_SHA256:
+            raise ValueError('patched binary checksum mismatch')
+    import tempfile
+    with tempfile.TemporaryDirectory() as home:
+        env = {'HOME': home, 'PATH': f'{tools}/node/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}
+        for executable, expected in (
+                ('node/bin/node', 'v22.22.0'),
+                ('node/bin/opencode', 'opencode v2.0.19'),
+                ('node_modules/.bin/acpx', '0.19.3')):
+            result = subprocess.run([str(tools / executable), '--version'], env=env,
+                                    capture_output=True, text=True, timeout=30)
+            if result.returncode or result.stdout.strip() != expected:
+                raise ValueError('reused tool version/ABI mismatch')
+            print(expected)
+
+
+def readiness_environment(config):
+    """Same catalog-readiness contract as the existing patched launcher."""
+    selected = config['model']
+    return {
+        'OPENCODE_ACP_REQUIRED_MODEL': selected['providerID'] + '/' + selected['model'],
+        'OPENCODE_ACP_REQUIRED_VARIANT': selected.get('variant', ''),
+        'OPENCODE_ACP_CATALOG_TIMEOUT_MS': '30000'}
+
+
 def main():
     """Prepare state or replace this process with the pinned executable."""
-    if len(sys.argv) < 2 or sys.argv[1] not in ('prepare', 'acpx', 'opencode'):
+    if len(sys.argv) < 2 or sys.argv[1] not in ('prepare', 'verify', 'acpx', 'opencode'):
         raise ValueError('expected prepare, acpx or opencode')
     command, arguments = sys.argv[1], sys.argv[2:]
+    verify_tools(binary=command == 'verify')
+    if command == 'verify':
+        return
     prepare()
     if command == 'prepare':
         missing = [key for key in LLM_KEYS if not os.environ.get(key)]
@@ -148,8 +186,11 @@ def main():
         return
     child = environment(os.environ)
     if command == 'opencode' and arguments not in (['--version'], ['--help']):
-        child['OPENCODE_CONFIG_CONTENT'] = json.dumps(configuration(child))
-    binary = TOOLS / command
+        config = configuration(child)
+        private_directory(STATE / 'config/opencode')
+        safe_json(STATE / 'config/opencode/opencode.json', config)
+        child.update(readiness_environment(config))
+    binary = TOOLS / ('node/bin/opencode' if command == 'opencode' else 'node_modules/.bin/acpx')
     os.execve(binary, [str(binary), *arguments], child)
 
 

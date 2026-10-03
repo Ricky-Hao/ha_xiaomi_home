@@ -2,7 +2,8 @@
   "name": "Xiaomi Home development",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "."
+    "context": ".",
+    "args": {"ACP_TOOLCHAIN_IMAGE": "${localEnv:ACP_TOOLCHAIN_IMAGE}"}
   },
   "remoteUser": "vscode",
   "workspaceFolder": "/workspaces/ha_xiaomi_home",

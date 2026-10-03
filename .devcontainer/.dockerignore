@@ -5,3 +5,4 @@
 !acp/
 !acp/runtime.py
 !acp/launch.sh
+!acp/opencode.template.json
