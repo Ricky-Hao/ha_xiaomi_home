@@ -10,11 +10,14 @@ import sys
 from urllib.parse import urlsplit
 
 STATE = Path('/workspaces/.private/ha-xiaomi-home-acp')
-TOOLS = Path('/opt/acp/toolset')
+TOOLS = STATE / 'toolset'
 TEMPLATE = Path(__file__).with_name('opencode.template.json')
-SOURCE_ID = '39caca86b63514b024ce96d503721a5863442b56a171dc9cfecbfe06f34f4bf7'
-BINARY_SHA256 = 'dd0b0bb190bd89233de7b1ba7972af901c0113bae55e9427b65b3431794a5b9a'
 PATCH_SHA256 = '8930ee92a7d7d732bb2175466740ac82a0b604c22ce88a9de99403438f306400'
+TOOL_IDENTITY = {
+    'baseVersion': '2.0.19',
+    'upstreamCommit': '1fd016ef32286de9489b7b24f1029f52c49a27b3',
+    'patchHash': PATCH_SHA256,
+    'nodeVersion': '22.22.0', 'bunVersion': '1.4.2', 'acpxVersion': '0.19.3'}
 MCP_NAMES = ('CONTEXT7', 'FIRECRAWL', 'GITHUB', 'GITHUB_ACTIONS')
 LLM_KEYS = ('LLM_API_KEY', 'LLM_BASE_URL')
 MCP_SUFFIXES = ('URL', 'API_KEY', 'ENABLED', 'AUTH_HEADER', 'AUTH_SCHEME')
@@ -30,14 +33,14 @@ def safe_value(value):
     return value
 
 
-def safe_url(value):
-    """Require TLS, except for loopback services; reject embedded credentials."""
+def safe_url(value, *, allow_http=False):
+    """Allow authorized HTTP for MCP only; keep other URL restrictions."""
     parts = urlsplit(safe_value(value))
     if (not parts.hostname or parts.username or parts.password
             or parts.query or parts.fragment
             or not (parts.scheme == 'https' or (
                 parts.scheme == 'http'
-                and parts.hostname in ('localhost', '127.0.0.1', '::1')))):
+                and (allow_http or parts.hostname in ('localhost', '127.0.0.1', '::1'))))):
         raise ValueError('unsafe endpoint')
     return value
 
@@ -59,7 +62,7 @@ def configuration(environ):
             del servers[server_name]
             continue
         server = servers[server_name]
-        safe_url(environ.get(prefix + 'URL', ''))
+        safe_url(environ.get(prefix + 'URL', ''), allow_http=True)
         safe_value(environ.get(prefix + 'API_KEY', ''))
         default_header = next(iter(server['headers']))
         header = environ.get(prefix + 'AUTH_HEADER', default_header)
@@ -135,19 +138,24 @@ def environment(environ, state=STATE):
 
 
 def verify_tools(tools=TOOLS, binary=False):
-    """Verify the original manifest; optionally hash/test the reused executables."""
+    """Verify source provenance and, when requested, local build hashes/versions.
+
+    Locally compiled binaries need not be byte-identical to the old OCI build.
+    This is cache validation, not protection from same-user manifest tampering.
+    """
     manifest = json.loads((tools / 'build.json').read_text())
-    identity = manifest['identity']
-    if (hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest() != SOURCE_ID
-            or identity['baseVersion'] != '2.0.19'
-            or identity['patchHash'] != PATCH_SHA256
-            or manifest['binarySha256'] != BINARY_SHA256):
-        raise ValueError('patched toolset identity mismatch')
+    if manifest.get('identity') != TOOL_IDENTITY:
+        raise ValueError('source-built toolset identity mismatch')
+    for name in ('trial.py', 'catalog-readiness.patch', 'catalog.test.ts'):
+        with Path(__file__).with_name('source-build').joinpath(name).open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != manifest.get('trialInputHashes', {}).get(name):
+                raise ValueError('source-build inputs changed; review before rebuilding')
     if not binary:
         return
-    with (tools / 'node/bin/opencode').open('rb') as stream:
-        if hashlib.file_digest(stream, 'sha256').hexdigest() != BINARY_SHA256:
-            raise ValueError('patched binary checksum mismatch')
+    for name, field in (('node/bin/opencode', 'binarySha256'), ('package-lock.json', 'acpxLockSha256')):
+        with (tools / name).open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != manifest.get(field):
+                raise ValueError('installed toolset checksum mismatch')
     import tempfile
     with tempfile.TemporaryDirectory() as home:
         env = {'HOME': home, 'PATH': f'{tools}/node/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8'}

@@ -96,6 +96,29 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runtime.safe_value(value)
 
+    def test_mcp_http_allowed_without_relaxing_llm(self):
+        for name in runtime.MCP_NAMES:
+            self.values.update({f'{name}_MCP_ENABLED': '1',
+                                f'{name}_MCP_URL': 'http://mcp.example.invalid/mcp',
+                                f'{name}_MCP_API_KEY': 'dummy-mcp-key'})
+        config = runtime.configuration(self.values)
+        self.assertEqual(len(config['mcp']['servers']), 4)
+        self.assertNotIn('dummy-mcp-key', json.dumps(config))
+        self.values['LLM_BASE_URL'] = 'http://llm.example.invalid/v1'
+        with self.assertRaises(ValueError):
+            runtime.configuration(self.values)
+
+    def test_http_opt_in_keeps_url_safety_checks(self):
+        for url in ('http://user:password@example.invalid/mcp',
+                    'http://example.invalid/mcp?token=hidden',
+                    'http://example.invalid/mcp#hidden',
+                    'http:///mcp', 'file:///etc/passwd',
+                    'ftp://example.invalid/mcp'):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                runtime.safe_url(url, allow_http=True)
+        self.assertEqual(runtime.safe_url('http://example.invalid/mcp', allow_http=True),
+                         'http://example.invalid/mcp')
+
     def test_unsafe_urls_refused(self):
         for url in ('http://service.example.invalid/mcp',
                     'https://user:password@example.invalid',
