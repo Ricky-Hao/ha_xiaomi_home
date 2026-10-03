@@ -1,0 +1,16 @@
+{
+  "name": "Xiaomi Home development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspaces/ha_xiaomi_home",
+  "postStartCommand": "python3 -B /opt/acp/runtime.py prepare",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
+      "settings": {"python.defaultInterpreterPath": "/usr/local/bin/python"}
+    }
+  }
+}

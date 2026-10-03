@@ -1,0 +1,7 @@
+# An allowlist prevents local credentials/logs from entering image layers.
+**
+!Dockerfile
+!.dockerignore
+!acp/
+!acp/runtime.py
+!acp/launch.sh
