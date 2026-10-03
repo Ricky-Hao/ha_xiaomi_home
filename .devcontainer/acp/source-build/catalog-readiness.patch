@@ -1,0 +1,83 @@
+--- a/packages/cli/src/acp/service.ts
++++ b/packages/cli/src/acp/service.ts
+@@ -411,43 +411,65 @@
+ }
+ 
+ async function loadCatalog(client: OpenCodeClient, cwd: string): Promise<Catalog> {
++  const target = process.env.OPENCODE_ACP_REQUIRED_MODEL
++  const deadline = Number(process.env.OPENCODE_ACP_CATALOG_TIMEOUT_MS ?? 30_000)
++  if (!target || !/^[^/\s]+\/\S+$/.test(target)) throw new Error("ACP requires an explicit provider/model target")
++  if (!Number.isInteger(deadline) || deadline < 100 || deadline > 120_000)
++    throw new Error("ACP catalog deadline must be an integer between 100 and 120000 ms")
++  const abort = new AbortController()
++  const timeout = new ACPError.ServiceFailureError({
++    safeMessage: "ACP catalog readiness deadline exceeded",
++    service: "catalog",
++  })
++  const timer = setTimeout(() => abort.abort(timeout), deadline)
++  const expired = new Promise<never>((_, reject) => {
++    abort.signal.addEventListener("abort", () => reject(timeout), { once: true })
++  })
++  try {
++    return await Promise.race([loadReadyCatalog(client, cwd, target, abort.signal), expired])
++  } finally {
++    clearTimeout(timer)
++    abort.abort()
++  }
++}
++
++async function loadReadyCatalog(client: OpenCodeClient, cwd: string, target: string, signal: AbortSignal): Promise<Catalog> {
+   const location = { directory: cwd }
+-  // Some providers discover models in the background after plugin startup begins.
+-  const deadline = Date.now() + 5_000
+-  let missing = "No models are available"
+-  while (Date.now() < deadline) {
++  // Readiness is for the explicit configured model, never the early builtin catalog.
++  const variant = process.env.OPENCODE_ACP_REQUIRED_VARIANT
++  while (true) {
++    signal.throwIfAborted()
+     const [modelResult, defaultResult, agentResult, commandResult] = await Promise.all([
+-      client.model.list({ location }),
+-      client.model.default({ location }),
+-      client.agent.list({ location }),
+-      client.command.list({ location }),
++      client.model.list({ location }, { signal }),
++      client.model.default({ location }, { signal }),
++      client.agent.list({ location }, { signal }),
++      client.command.list({ location }, { signal }),
+     ])
+     const models = modelResult.data.filter((model) => model.enabled)
+-    const preferred = defaultResult.data
++    signal.throwIfAborted()
++    const preferred = { providerID: target.slice(0, target.indexOf("/")), id: target.slice(target.indexOf("/") + 1) }
+     // Parallel reads can straddle initialization; select only from this model list.
+-    const defaultModel = preferred
+-      ? models.find((model) => model.providerID === preferred.providerID && model.id === preferred.id)
+-      : models[0]
++    const defaultModel = models.find((model) => model.providerID === preferred.providerID && model.id === preferred.id)
+     const agents = agentResult.data.filter((agent) => agent.mode !== "subagent" && !agent.hidden)
+     const defaultAgent = agents.find((agent) => agent.mode === "primary") ?? agents[0]
+     if (defaultModel && defaultAgent) {
++      if (variant && !defaultModel.variants.some((item) => item.id === variant))
++        throw new ACPError.InvalidEffortError({ effort: variant })
+       return {
+         providers: providers(models),
+         models,
+         defaultModel: {
+           providerID: defaultModel.providerID,
+           id: defaultModel.id,
+-          variant: defaultModel.variants.find((variant) => variant.id === "default")?.id,
++          variant: variant ?? defaultModel.variants.find((item) => item.id === "default")?.id,
+         },
+         modes: agents.map((agent) => ({ id: agent.id, name: agent.name, description: agent.description })),
+         defaultModeID: defaultAgent.id,
+         commands: commandResult.data,
+       }
+     }
+-    missing = defaultModel ? "No primary agents are available" : "No models are available"
+     await Bun.sleep(25)
+   }
+-  throw new Error(missing)
+ }
+ 
+ function providers(models: readonly ModelInfo[]): ConfigOptionProvider[] {

@@ -1,13 +1,9 @@
 {
   "name": "Xiaomi Home development",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".",
-    "args": {"ACP_TOOLCHAIN_IMAGE": "${localEnv:ACP_TOOLCHAIN_IMAGE}"}
-  },
-  "remoteUser": "vscode",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.13-bookworm",
+  "remoteUser": "root",
   "workspaceFolder": "/workspaces/ha_xiaomi_home",
-  "postStartCommand": "python3 -B /opt/acp/runtime.py prepare",
+  "postStartCommand": "python3 -B /workspaces/ha_xiaomi_home/.devcontainer/acp/bootstrap.py || printf '%s\\n' 'ACP setup unavailable; inspect .private/ha-xiaomi-home-source-build/setup-v1 outside the repository. Terminal remains available.'",
   "customizations": {
     "vscode": {
       "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
