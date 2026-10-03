@@ -2,7 +2,9 @@
 
 Active path: generic Python 3.13 image -> postStart bootstrap.py -> persistent
 source-built OpenCode 2.0.19 + acpx 0.19.3. No Dockerfile or OCI import is used.
-The old Dockerfile/importer/tests remain inactive local files pending cleanup.
+The old Dockerfile, OCI importer and their tests have been removed.
+.dockerignore retains only Envbuilder's generated-file allowlist; runtime scripts
+are read from the mounted checkout, not copied into the image.
 Existing root user and checkout ownership are retained; no Pod privileges change.
 
 First setup runs asynchronously using the already-tested source-build/trial.py:
@@ -45,7 +47,6 @@ expected text with no tool calls. MCP connections and ACP cancellation are untes
 Offline suites: test_runtime.py and test_bootstrap.py under acp/.
 Version checks and cached recovery after Workspace restart pass. Home Assistant
 runtime and integration-test dependencies are intentionally not installed.
-Only the active source-build configuration is included in the migration commit;
-obsolete local OCI recovery edits are not part of the supported startup path.
+Only the source-build configuration is supported; there is no OCI fallback.
 GitHub SSH host trust is container-local; after replacement, restore a verified
 GitHub host key before Git SSH operations. Never disable host-key verification.
