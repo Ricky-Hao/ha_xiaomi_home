@@ -750,7 +750,7 @@ class MIoTClient:
             ):
                 _LOGGER.warning('invalid cloud poll result, %s', result)
                 continue
-            if 'value' not in result:
+            if result.get('code', 0) != 0 or 'value' not in result:
                 _LOGGER.debug('cloud poll property unavailable, %s', result)
                 continue
             key = f'{result["did"]}|{result["siid"]}|{result["piid"]}'

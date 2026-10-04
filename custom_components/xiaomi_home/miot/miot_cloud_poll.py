@@ -51,6 +51,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
+# pylint: disable=relative-beyond-top-level
 from .const import (
     CLOUD_POLL_PROP_BATCH_SIZE,
     DEFAULT_CLOUD_POLL_INTERVAL,
@@ -140,8 +141,19 @@ class MIoTCloudPoller:
         refreshed_count = 0
         async with self._poll_lock:
             for index in range(0, len(self._params), self._batch_size):
-                refreshed = await self._miot_client.refresh_cloud_props_async(
-                    self._params[index:index+self._batch_size])
+                try:
+                    refreshed = (
+                        await self._miot_client.refresh_cloud_props_async(
+                            self._params[index:index+self._batch_size]))
+                except MIoTError as err:
+                    _LOGGER.error(
+                        'cloud poll batch failed, offset=%s, %s', index, err)
+                    continue
+                except Exception as err:  # pylint: disable=broad-exception-caught
+                    _LOGGER.error(
+                        'cloud poll batch unexpected error, offset=%s, %s',
+                        index, err, exc_info=True)
+                    continue
                 refreshed_count += len(refreshed)
         return refreshed_count
 

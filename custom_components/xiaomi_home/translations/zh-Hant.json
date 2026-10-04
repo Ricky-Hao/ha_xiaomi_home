@@ -162,7 +162,7 @@
             },
             "cloud_poll_config": {
                 "title": "雲端狀態輪詢",
-                "description": "選擇需要透過小米雲定期重新整理實體屬性的設備。Wi-Fi 和藍牙設備均可選擇，但回傳值是小米雲已知的最新狀態，可能不是對實體設備的即時直接讀取結果。\r\n\r\n輪詢間隔必須介於 {min_interval} 到 {max_interval} 秒。",
+                "description": "預設關閉。請選擇需要雲端補償屬性推送遺漏的設備，清空設備選擇即可停用輪詢。此功能讀取可讀實體屬性的小米雲快取狀態，不是設備即時直接讀取，也不能恢復事件。雲端快取可能覆蓋較新的本地或推送值。\r\n\r\n所選設備共用一個間隔，必須介於 {min_interval} 到 {max_interval} 秒。",
                 "data": {
                     "cloud_poll_device_ids": "需要輪詢的設備",
                     "cloud_poll_interval": "輪詢間隔（秒）"

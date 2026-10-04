@@ -1818,7 +1818,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 data_schema=vol.Schema({
                     vol.Optional(
                         CONF_CLOUD_POLL_DEVICE_IDS,
-                        default=self._cloud_poll_device_ids_new
+                        description={
+                            'suggested_value': self._cloud_poll_device_ids_new}
                     ): cv.multi_select(dict(sorted(
                         device_list.items(), key=lambda device: device[1]))),
                     vol.Required(

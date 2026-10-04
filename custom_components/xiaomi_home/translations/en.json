@@ -162,7 +162,7 @@
             },
             "cloud_poll_config": {
                 "title": "Cloud State Polling",
-                "description": "Select devices whose entity properties should be refreshed periodically through Xiaomi Cloud. This supports Wi-Fi and Bluetooth devices, but the returned value is the latest state known by Xiaomi Cloud and may not be a real-time direct device reading.\r\n\r\nThe polling interval must be between {min_interval} and {max_interval} seconds. Selecting many devices or a short interval increases Xiaomi Cloud API traffic.",
+                "description": "Disabled by default. Select devices that need cloud compensation for missed property pushes; clear the selection to disable polling. This reads readable entity properties from Xiaomi Cloud's cached state, not live device readings, and does not recover events. Cached values may overwrite newer local or pushed values.\r\n\r\nAll selected devices share an interval between {min_interval} and {max_interval} seconds. Selecting many devices or a short interval increases Xiaomi Cloud API traffic.",
                 "data": {
                     "cloud_poll_device_ids": "Devices to poll",
                     "cloud_poll_interval": "Polling interval (seconds)"
