@@ -1,0 +1,13 @@
+# Match the project unit-test install in .github/workflows/test.yaml.
+# The HA validator distribution is installed separately with --no-deps.
+pytest
+pytest-asyncio
+pytest-dependency
+zeroconf
+paho.mqtt
+psutil
+cryptography
+python-slugify
+aiohttp
+voluptuous
+PyYAML
