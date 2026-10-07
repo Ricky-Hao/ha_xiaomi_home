@@ -86,6 +86,7 @@ class MIoTCloudPoller:
         self._main_loop = miot_client.main_loop
         self._interval = interval
         self._batch_size = batch_size
+        self._selected_dids = set(selected_dids)
         self._params = self.__get_poll_params(
             devices=devices, selected_dids=selected_dids)
         self._poll_lock = asyncio.Lock()
@@ -132,6 +133,20 @@ class MIoTCloudPoller:
                 pass
         self._task = None
 
+    def remove_device(self, did: str) -> None:
+        """Exclude a device from future batches without waiting for cloud I/O.
+
+        An in-flight batch may still contain this device. Let it complete;
+        stop() retains ownership of lifecycle cancellation.
+        """
+        self._selected_dids.discard(did)
+        self._params = [param for param in self._params if param['did'] != did]
+        if not self._params:
+            self._active = False
+            if self._timer:
+                self._timer.cancel()
+                self._timer = None
+
     async def async_poll_once(self) -> int:
         """Run one cloud polling round without overlapping another round."""
         if self._poll_lock.locked():
@@ -140,11 +155,17 @@ class MIoTCloudPoller:
             return 0
         refreshed_count = 0
         async with self._poll_lock:
-            for index in range(0, len(self._params), self._batch_size):
+            # Keep offsets stable when removal replaces _params during I/O,
+            # but recheck selection before sending each subsequent batch.
+            params = self._params
+            for index in range(0, len(params), self._batch_size):
+                batch = [param for param in params[index:index+self._batch_size]
+                         if param['did'] in self._selected_dids]
+                if not batch:
+                    continue
                 try:
-                    refreshed = (
-                        await self._miot_client.refresh_cloud_props_async(
-                            self._params[index:index+self._batch_size]))
+                    refreshed = await (
+                        self._miot_client.refresh_cloud_props_async(batch))
                 except MIoTError as err:
                     _LOGGER.error(
                         'cloud poll batch failed, offset=%s, %s', index, err)

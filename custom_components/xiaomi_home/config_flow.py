@@ -1797,6 +1797,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return await self.async_step_cloud_poll_config()
 
     async def async_step_cloud_poll_config(self, user_input=None):
+        if not self._opt_cloud_poll_cfg:
+            # Back navigation can disable a previously edited polling page.
+            self._cloud_poll_device_ids_new = list(self._cloud_poll_device_ids)
+            self._cloud_poll_interval_new = self._cloud_poll_interval
         devices = (
             self._device_list_sorted
             if self._update_devices
@@ -2023,6 +2027,36 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             last_step=False
         )
 
+    def __cloud_poll_changes(self) -> dict:
+        """Merge disjoint polling edits; require a restart for field conflicts.
+
+        The client device cache can retain a removed DID, so the current entry
+        selection, not that cache, is authoritative for concurrent changes.
+        """
+        changes = {}
+        for key, before, after, current, value in [
+            (CONF_CLOUD_POLL_DEVICE_IDS,
+             set(self._cloud_poll_device_ids),
+             set(self._cloud_poll_device_ids_new),
+             set(self._config_entry.data.get(CONF_CLOUD_POLL_DEVICE_IDS, [])),
+             self._cloud_poll_device_ids_new),
+            (CONF_CLOUD_POLL_INTERVAL,
+             self._cloud_poll_interval, self._cloud_poll_interval_new,
+             self._config_entry.data.get(
+                 CONF_CLOUD_POLL_INTERVAL, DEFAULT_CLOUD_POLL_INTERVAL),
+             self._cloud_poll_interval_new),
+        ]:
+            if before == after or current == after:
+                continue
+            if current != before:
+                raise AbortFlow(
+                    reason='options_flow_error', description_placeholders={
+                        'error': 'Cloud polling settings changed while these '
+                                 'options were open. Please reopen the options '
+                                 'and try again.'})
+            changes[key] = value
+        return changes
+
     async def async_step_config_confirm(self, user_input=None):
         if not user_input or not user_input.get('confirm', False):
             enable_text = self._miot_i18n.translate(
@@ -2065,18 +2099,53 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 last_step=True
             )
 
+        # Forms never hold the lock. A reload retires the old client, so an
+        # options flow opened against it must restart rather than write later.
+        async with self._miot_client.entry_update_lock:
+            if self.hass.data[DOMAIN]['miot_clients'].get(
+                self._config_entry.entry_id
+            ) is not self._miot_client:
+                raise AbortFlow(
+                    reason='options_flow_error', description_placeholders={
+                        'error': 'The integration was reloaded. Please reopen '
+                                 'the options and try again.'})
+            return await self.__async_confirm()
+
+    async def __async_confirm(self):
+        """Commit under the client entry lock, checking conflicts before I/O."""
+        cloud_poll_changes = self.__cloud_poll_changes()
+        if self._update_devices:
+            # Untouched polling can preserve a newer selection. Validate that
+            # effective selection against this flow's proposed imports too.
+            selected_dids = cloud_poll_changes.get(
+                CONF_CLOUD_POLL_DEVICE_IDS,
+                self._config_entry.data.get(CONF_CLOUD_POLL_DEVICE_IDS, []))
+            if not set(selected_dids).issubset(self._device_list_sorted):
+                raise AbortFlow(
+                    reason='options_flow_error', description_placeholders={
+                        'error': 'Cloud polling settings changed while these '
+                                 'options were open. Please reopen the options '
+                                 'and try again.'})
+        entry_changes = {}
         if self._lang_new != self._integration_language:
-            self._entry_data['integration_language'] = self._lang_new
+            entry_changes['integration_language'] = self._lang_new
             self._need_reload = True
         if self._cover_width_new != self._cover_dz_width:
-            self._entry_data['cover_dead_zone_width'] = self._cover_width_new
+            entry_changes['cover_dead_zone_width'] = self._cover_width_new
             self._need_reload = True
-        if self._update_user_info:
-            self._entry_data['nick_name'] = self._nick_name_new
+        if self._update_user_info and self._nick_name_new != self._nick_name:
+            entry_changes['nick_name'] = self._nick_name_new
         if self._update_devices:
-            self._entry_data['ctrl_mode'] = self._ctrl_mode
-            self._entry_data['home_selected'] = self._home_selected
-            self._entry_data['devices_filter'] = self._devices_filter
+            if self._ctrl_mode != self._entry_data.get(
+                'ctrl_mode', DEFAULT_CTRL_MODE
+            ):
+                entry_changes['ctrl_mode'] = self._ctrl_mode
+            if self._home_selected != self._entry_data['home_selected']:
+                entry_changes['home_selected'] = self._home_selected
+            if self._devices_filter != self._entry_data.get(
+                'devices_filter', {}
+            ):
+                entry_changes['devices_filter'] = self._devices_filter
             if not await self._miot_storage.save_async(
                     domain='miot_devices',
                     name=f'{self._uid}_{self._cloud_server}',
@@ -2091,35 +2160,25 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if self._update_trans_rules:
             self._need_reload = True
         if self._action_debug_new != self._action_debug:
-            self._entry_data['action_debug'] = self._action_debug_new
+            entry_changes['action_debug'] = self._action_debug_new
             self._need_reload = True
         if (
             self._hide_non_standard_entities_new !=
             self._hide_non_standard_entities
         ):
-            self._entry_data['hide_non_standard_entities'] = (
+            entry_changes['hide_non_standard_entities'] = (
                 self._hide_non_standard_entities_new)
             self._need_reload = True
         if set(self._display_binary_mode) != set(self._display_binary_mode_new):
-            self._entry_data['display_binary_mode'] = (
+            entry_changes['display_binary_mode'] = (
                 self._display_binary_mode_new)
             self._need_reload = True
-        if (
-            set(self._cloud_poll_device_ids) !=
-            set(self._cloud_poll_device_ids_new)
-        ):
-            self._entry_data[CONF_CLOUD_POLL_DEVICE_IDS] = (
-                self._cloud_poll_device_ids_new)
-            self._need_reload = True
-        if self._cloud_poll_interval != self._cloud_poll_interval_new:
-            self._entry_data[CONF_CLOUD_POLL_INTERVAL] = (
-                self._cloud_poll_interval_new)
-            self._need_reload = True
         # Update display_devices_changed_notify
-        self._entry_data['display_devices_changed_notify'] = (
-            self._display_devs_notify)
-        self._miot_client.display_devices_changed_notify = (
-            self._display_devs_notify)
+        if set(self._display_devs_notify) != set(self._entry_data.get(
+            'display_devices_changed_notify', ['add', 'del', 'offline']
+        )):
+            entry_changes['display_devices_changed_notify'] = (
+                self._display_devs_notify)
         if (
                 self._devices_remove
                 and not await self._miot_storage.update_user_config_async(
@@ -2130,12 +2189,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             raise AbortFlow(
                 reason='storage_error',
                 description_placeholders={'error': 'Update user config error'})
+        # Polling writers are excluded until the commit finishes. Preserve any
+        # unrelated fields updated during storage I/O, without a late abort
+        # after destructive device persistence.
+        entry_data = {
+            **self._config_entry.data, **entry_changes, **cloud_poll_changes}
+        if cloud_poll_changes:
+            self._need_reload = True
+        self._miot_client.display_devices_changed_notify = entry_data.get(
+            'display_devices_changed_notify', ['add', 'del', 'offline'])
         entry_title = (
-            f'{self._nick_name_new or self._nick_name}: '
+            f'{entry_data.get("nick_name", DEFAULT_NICK_NAME)}: '
             f'{self._uid} [{CLOUD_SERVERS[self._cloud_server]}]')
         # Update entry config
         self.hass.config_entries.async_update_entry(
-            self._config_entry, title=entry_title, data=self._entry_data)
+            self._config_entry, title=entry_title, data=entry_data)
         # Reload later
         if self._need_reload:
             self._main_loop.call_later(

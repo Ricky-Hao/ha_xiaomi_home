@@ -205,6 +205,8 @@ class MIoTClient:
         if not isinstance(mips_service, MipsService):
             raise MIoTClientError('invalid mips service')
         self._entry_id = entry_id
+        # Entry persistence and lifecycle operations share this instance's lock.
+        self._entry_update_lock = asyncio.Lock()
         self._entry_data = entry_data
         self._uid = entry_data['uid']
         self._cloud_server = entry_data['cloud_server']
@@ -530,6 +532,11 @@ class MIoTClient:
         return self._device_list_cache
 
     @property
+    def entry_update_lock(self) -> asyncio.Lock:
+        """Serialize entry writes with device removal and client retirement."""
+        return self._entry_update_lock
+
+    @property
     def persistent_notify(self) -> Callable:
         return self._persistence_notify
 
@@ -741,21 +748,21 @@ class MIoTClient:
             f'{param["did"]}|{param["siid"]}|{param["piid"]}'
             for param in params}
         results = await self._http.get_props_async(params=params)
-        if not results:
+        if not isinstance(results, list) or not results:
             raise MIoTClientError('get_props_async failed')
         refreshed_keys: set[str] = set()
         for result in results:
-            if not all(
+            if not isinstance(result, dict) or not all(
                 key in result for key in ['did', 'siid', 'piid']
             ):
-                _LOGGER.warning('invalid cloud poll result, %s', result)
+                _LOGGER.warning('invalid cloud poll result')
                 continue
             if result.get('code', 0) != 0 or 'value' not in result:
-                _LOGGER.debug('cloud poll property unavailable, %s', result)
+                _LOGGER.debug('cloud poll property unavailable')
                 continue
             key = f'{result["did"]}|{result["siid"]}|{result["piid"]}'
             if key not in request_keys:
-                _LOGGER.warning('unexpected cloud poll result, %s', result)
+                _LOGGER.warning('unexpected cloud poll result')
                 continue
             self.__on_prop_msg(params=result, ctx=None)
             refreshed_keys.add(key)
@@ -938,24 +945,35 @@ class MIoTClient:
     async def remove_device_async(self, did: str) -> None:
         if did not in self._device_list_cache:
             return
-        sub_from = self._sub_source_list.pop(did, None)
-        # Unsub
-        if sub_from:
-            self.__unsub_from(sub_from, did)
-        # Storage
-        await self._storage.save_async(
+        # A confirmed options flow may have changed the imported device set
+        # while this client is still waiting to reload. Do not write its stale
+        # cache over that selection. The entry caller holds entry_update_lock.
+        devices = await self._storage.load_async(
+            domain='miot_devices',
+            name=f'{self._uid}_{self._cloud_server}', type_=dict)
+        if not isinstance(devices, dict):
+            raise MIoTClientError('load device list failed')
+        if not await self._storage.save_async(
             domain='miot_devices',
             name=f'{self._uid}_{self._cloud_server}',
-            data=self._device_list_cache)
+            data=devices
+        ):
+            raise MIoTClientError('save device list failed')
+        # Keep push subscriptions intact until persistence succeeds.
+        sub_from = self._sub_source_list.pop(did, None)
+        if sub_from:
+            self.__unsub_from(sub_from, did)
         # Update notify
         self.__request_show_devices_changed_notify()
 
-    async def remove_device2_async(self, did_tag: str) -> None:
+    async def remove_device2_async(self, did_tag: str) -> Optional[str]:
+        """Remove a device by registry tag and return its resolved DID."""
         for did in self._device_list_cache:
             d_tag = slugify_did(cloud_server=self._cloud_server, did=did)
             if did_tag == d_tag:
                 await self.remove_device_async(did)
-                break
+                return did
+        return None
 
     def __get_exec_error_with_rc(self, rc: int) -> str:
         err_msg: str = self._i18n.translate(

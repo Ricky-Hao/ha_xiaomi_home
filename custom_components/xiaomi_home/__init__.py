@@ -372,14 +372,35 @@ async def async_unload_entry(
     hass: HomeAssistant, config_entry: ConfigEntry
 ) -> bool:
     """Unload the entry."""
+    miot_client: Optional[MIoTClient] = hass.data[DOMAIN]['miot_clients'].get(
+        config_entry.entry_id)
+    if miot_client:
+        async with miot_client.entry_update_lock:
+            if hass.data[DOMAIN]['miot_clients'].get(
+                config_entry.entry_id
+            ) is not miot_client:
+                return False
+            return await _async_unload_entry(hass, config_entry)
+    return await _async_unload_entry(hass, config_entry)
+
+
+async def _async_unload_entry(
+    hass: HomeAssistant, config_entry: ConfigEntry
+) -> bool:
+    """Retire the client only after any entry write has completed."""
     entry_id = config_entry.entry_id
     cloud_poller: Optional[MIoTCloudPoller] = hass.data[DOMAIN][
         'cloud_pollers'].get(entry_id)
     if cloud_poller:
         await cloud_poller.stop()
     # Unload the platform
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        config_entry, SUPPORTED_PLATFORMS)
+    try:
+        unload_ok = await hass.config_entries.async_unload_platforms(
+            config_entry, SUPPORTED_PLATFORMS)
+    except Exception:
+        if cloud_poller:
+            cloud_poller.start()
+        raise
     if not unload_ok:
         if cloud_poller:
             cloud_poller.start()
@@ -440,9 +461,28 @@ async def async_remove_config_entry_device(
             device_entry.id, device_entry.identifiers)
         return False
 
-    # Remove device
-    await miot_client.remove_device2_async(did_tag=identifiers[1])
-    device_registry.async_get(hass).async_remove_device(device_entry.id)
-    _LOGGER.info(
-        'remove device, %s, %s', identifiers[1], device_entry.id)
-    return True
+    async with miot_client.entry_update_lock:
+        # An unload may have completed while this removal waited for the lock.
+        if hass.data[DOMAIN]['miot_clients'].get(
+            config_entry.entry_id
+        ) is not miot_client:
+            return False
+        did = await miot_client.remove_device2_async(did_tag=identifiers[1])
+        if did is not None:
+            cloud_poller: Optional[MIoTCloudPoller] = hass.data[DOMAIN][
+                'cloud_pollers'].get(config_entry.entry_id)
+            if cloud_poller:
+                cloud_poller.remove_device(did)
+            selected_dids = config_entry.data.get(
+                CONF_CLOUD_POLL_DEVICE_IDS, [])
+            if did in selected_dids:
+                hass.config_entries.async_update_entry(
+                    config_entry, data={
+                        **config_entry.data,
+                        CONF_CLOUD_POLL_DEVICE_IDS: [
+                            selected for selected in selected_dids
+                            if selected != did]})
+        device_registry.async_get(hass).async_remove_device(device_entry.id)
+        _LOGGER.info(
+            'remove device, %s, %s', identifiers[1], device_entry.id)
+        return True

@@ -343,3 +343,107 @@ async def test_selected_device_without_readable_properties():
     assert not poller.start()
     assert await poller.async_poll_once() == 0
     assert not client.calls
+
+
+@pytest.mark.asyncio
+async def test_remove_device_prunes_rounds_and_stops_last_timer():
+    from miot.miot_cloud_poll import MIoTCloudPoller
+
+    client = FakeClient()
+    poller = MIoTCloudPoller(
+        client, [FakeDevice(did, [FakeProp(2, 1)], [])
+                 for did in ['removed', 'remaining', 'unselected']],
+        {'removed', 'remaining'}, interval=120)
+    assert poller.start()
+    timer = poller._timer
+    try:
+        poller.remove_device('unknown')
+        poller.remove_device('unselected')
+        assert poller.prop_count == 2
+        assert poller._timer is timer
+        poller.remove_device('removed')
+        assert poller.active
+        assert poller.prop_count == 1
+        assert poller._timer is timer
+        for _ in range(2):
+            assert await poller.async_poll_once() == 1
+        assert client.calls == [
+            [{'did': 'remaining', 'siid': 2, 'piid': 1}]] * 2
+
+        poller.remove_device('remaining')
+        poller.remove_device('remaining')
+        assert not poller.active
+        assert timer.cancelled()
+        assert poller._timer is None
+        assert poller.prop_count == 0
+        poller._MIoTCloudPoller__start_poll()
+        assert poller._task is None
+        assert not poller.start()
+        assert await poller.async_poll_once() == 0
+        assert len(client.calls) == 2
+    finally:
+        await poller.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('last', [False, True])
+@pytest.mark.parametrize('outcome', ['success', 'failure', 'stop'])
+async def test_remove_device_during_batch(last, outcome):
+    from miot.miot_cloud_poll import MIoTCloudPoller
+
+    loop = Mock(spec=asyncio.AbstractEventLoop)
+    loop.create_task.side_effect = asyncio.create_task
+    loop.call_later.side_effect = lambda *_: Mock(spec=asyncio.TimerHandle)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    client = FakeClient()
+    client.main_loop = loop
+
+    async def refresh(params):
+        client.calls.append(params)
+        if not started.is_set():
+            started.set()
+            await release.wait()
+            if outcome == 'failure':
+                raise TimeoutError('synthetic request failure')
+        return {cloud_prop_key(param) for param in params}
+
+    client.refresh_cloud_props_async = refresh
+    devices = [FakeDevice(
+        'a.removed', [FakeProp(2, piid) for piid in range(1, 4)], [])]
+    if not last:
+        devices.append(FakeDevice(
+            'z.kept', [FakeProp(2, 1), FakeProp(2, 2)], []))
+    poller = MIoTCloudPoller(
+        client, devices, {device.did for device in devices}, batch_size=2)
+    poller.start()
+    loop.call_later.call_args.args[1]()
+    task = poller._task
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        poller.remove_device('a.removed')
+        assert not task.done()
+        assert poller.active is not last
+        if outcome == 'stop':
+            await asyncio.wait_for(poller.stop(), timeout=5)
+            assert task.cancelled()
+            assert len(client.calls) == 1
+            assert loop.call_later.call_count == 1
+        else:
+            release.set()
+            await asyncio.wait_for(task, timeout=5)
+            expected = [] if last else [
+                {'did': 'z.kept', 'siid': 2, 'piid': piid}
+                for piid in [1, 2]]
+            assert [param for batch in client.calls[1:]
+                    for param in batch] == expected
+            assert all(client.calls)
+            assert loop.call_later.call_count == (1 if last else 2)
+            client.calls.clear()
+            assert await poller.async_poll_once() == len(expected)
+            assert [param for batch in client.calls
+                    for param in batch] == expected
+        assert not poller._poll_lock.locked()
+    finally:
+        release.set()
+        await poller.stop()
