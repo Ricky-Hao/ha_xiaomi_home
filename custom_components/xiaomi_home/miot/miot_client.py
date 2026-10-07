@@ -731,6 +731,36 @@ class MIoTClient:
             REFRESH_PROPS_DELAY, lambda: self._main_loop.create_task(
                 self.__refresh_props_handler()))
 
+    async def refresh_cloud_props_async(
+        self, params: list[dict]
+    ) -> set[str]:
+        """Refresh properties through Xiaomi Cloud without local fallback."""
+        if not params or not self._network.network_status:
+            return set()
+        request_keys = {
+            f'{param["did"]}|{param["siid"]}|{param["piid"]}'
+            for param in params}
+        results = await self._http.get_props_async(params=params)
+        if not results:
+            raise MIoTClientError('get_props_async failed')
+        refreshed_keys: set[str] = set()
+        for result in results:
+            if not all(
+                key in result for key in ['did', 'siid', 'piid']
+            ):
+                _LOGGER.warning('invalid cloud poll result, %s', result)
+                continue
+            if result.get('code', 0) != 0 or 'value' not in result:
+                _LOGGER.debug('cloud poll property unavailable, %s', result)
+                continue
+            key = f'{result["did"]}|{result["siid"]}|{result["piid"]}'
+            if key not in request_keys:
+                _LOGGER.warning('unexpected cloud poll result, %s', result)
+                continue
+            self.__on_prop_msg(params=result, ctx=None)
+            refreshed_keys.add(key)
+        return refreshed_keys
+
     async def get_prop_async(self, did: str, siid: int, piid: int) -> Any:
         if did not in self._device_list_cache:
             raise MIoTClientError(f'did not exist, {did}')
@@ -1667,22 +1697,10 @@ class MIoTClient:
                 key, value = self._refresh_props_list.popitem()
                 request_list[key] = value
         try:
-            results = await self._http.get_props_async(
+            refreshed_keys = await self.refresh_cloud_props_async(
                 params=list(request_list.values()))
-            if not results:
-                raise MIoTClientError('get_props_async failed')
-            for result in results:
-                if (
-                    'did' not in result
-                    or 'siid' not in result
-                    or 'piid' not in result
-                    or 'value' not in result
-                ):
-                    continue
-                request_list.pop(
-                    f'{result["did"]}|{result["siid"]}|{result["piid"]}',
-                    None)
-                self.__on_prop_msg(params=result, ctx=None)
+            for key in refreshed_keys:
+                request_list.pop(key, None)
             if request_list:
                 _LOGGER.info(
                     'refresh props failed, cloud, %s',

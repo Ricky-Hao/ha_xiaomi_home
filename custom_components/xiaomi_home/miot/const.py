@@ -64,6 +64,13 @@ MIHOME_CERT_EXPIRE_MARGIN: int = 3600*24*3
 
 NETWORK_REFRESH_INTERVAL: int = 30
 
+CONF_CLOUD_POLL_DEVICE_IDS: str = 'cloud_poll_device_ids'
+CONF_CLOUD_POLL_INTERVAL: str = 'cloud_poll_interval'
+DEFAULT_CLOUD_POLL_INTERVAL: int = 60
+MIN_CLOUD_POLL_INTERVAL: int = 30
+MAX_CLOUD_POLL_INTERVAL: int = 3600
+CLOUD_POLL_PROP_BATCH_SIZE: int = 150
+
 OAUTH2_CLIENT_ID: str = '2882303761520251711'
 OAUTH2_AUTH_URL: str = 'https://account.xiaomi.com/oauth2/authorize'
 DEFAULT_OAUTH2_API_HOST: str = 'ha.api.io.mi.com'

@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "Cihaz durum değişikliği bildirimlerini göster",
                     "update_trans_rules": "Varlık dönüştürme kurallarını güncelle",
                     "update_lan_ctrl_config": "LAN kontrol yapılandırmasını güncelle",
+                    "update_cloud_poll_config": "Bulut durum yoklamasını güncelle",
                     "network_detect_config": "Entegre ağ yapılandırması",
                     "cover_dead_zone_width": "Perde ölü bölge genişliği"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "Cihazları Filtrele",
                     "device_list": "Cihaz Listesi",
                     "statistics_logic": "İstatistik Mantığı"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "Bulut durum yoklaması",
+                "description": "Varlık özellikleri Xiaomi Cloud üzerinden düzenli olarak yenilenecek cihazları seçin. Wi-Fi ve Bluetooth cihazları desteklenir; ancak döndürülen değer Xiaomi Cloud tarafından bilinen son durumdur ve gerçek zamanlı doğrudan cihaz okuması olmayabilir.\r\n\r\nYoklama aralığı {min_interval} ile {max_interval} saniye arasında olmalıdır.",
+                "data": {
+                    "cloud_poll_device_ids": "Yoklanacak cihazlar",
+                    "cloud_poll_interval": "Yoklama aralığı (saniye)"
                 }
             },
             "update_trans_rules": {

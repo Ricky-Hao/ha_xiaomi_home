@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "Afficher les notifications de changement d'état de l'appareil",
                     "update_trans_rules": "Mettre à jour les règles de conversion d'entités",
                     "update_lan_ctrl_config": "Mettre à jour la configuration de contrôle LAN",
+                    "update_cloud_poll_config": "Mettre à jour l'interrogation d'état cloud",
                     "network_detect_config": "Configuration Réseau Intégrée",
                     "cover_dead_zone_width": "Largeur de la zone aveugle du rideau"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "Filtrer les Appareils",
                     "device_list": "Liste des Appareils",
                     "statistics_logic": "Logique de Statistiques"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "Interrogation d'état cloud",
+                "description": "Sélectionnez les appareils dont les propriétés d'entité doivent être actualisées périodiquement via Xiaomi Cloud. Les appareils Wi-Fi et Bluetooth sont pris en charge, mais la valeur renvoyée est le dernier état connu par Xiaomi Cloud et peut ne pas être une lecture directe en temps réel.\r\n\r\nL'intervalle doit être compris entre {min_interval} et {max_interval} secondes.",
+                "data": {
+                    "cloud_poll_device_ids": "Appareils à interroger",
+                    "cloud_poll_interval": "Intervalle d'interrogation (secondes)"
                 }
             },
             "update_trans_rules": {

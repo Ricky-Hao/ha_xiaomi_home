@@ -69,6 +69,19 @@ You can change the configurations in the "Configuration Options" dialog box, in 
 
 Method: [Settings > Devices & services > Configured > Xiaomi Home](https://my.home-assistant.io/redirect/integration/?domain=xiaomi_home) > CONFIGURE > Select the option to update
 
+### Optional Cloud State Polling
+
+In CONFIGURE, select **Update cloud state polling**, choose devices and an
+interval (default 60 seconds, range 30–3600), then confirm to save and reload.
+Polling is disabled by default. Clear the device selection to disable it.
+
+This periodically reads the selected devices' readable entity properties from
+Xiaomi Cloud's cached state to compensate for missed pushes. It does not read
+devices live or recover events. Cached values may overwrite newer local or
+pushed values, so select devices that need cloud compensation. All selected
+devices share one interval. The first round waits that interval; each subsequent
+round waits the same interval after the previous round finishes.
+
 ### Debug Mode for Action
 
 You can manually send Action command message with parameters to the device when the debug mode for action is activated. The user interface for sending the Action command with parameters is shown as a Text entity.
@@ -117,6 +130,9 @@ Image 1: Cloud control architecture
  </div>
 
 Xiaomi Home Integration subscribes to the interested device messages on the MQTT Broker in MIoT Cloud. When a device property changes or a device event occurs, the device sends an upstream message to MIoT Cloud, and the MQTT Broker pushes the subscribed device message to Xiaomi Home Integration. Because Xiaomi Home Integration does not need to poll to obtain the current device property value in the cloud, it can immediately receive the notification message when the properties change or the events occur. Thanks to the message subscription mechanism, Xiaomi Home Integration only queries the properties of all devices from the cloud once when the integration configuration is completed, which puts little access pressure on the cloud.
+
+Enabling optional Cloud State Polling adds periodic cached-property queries to
+this push-based mechanism.
 
 Xiaomi Home Integration sends command messages to the devices via the HTTP interface of MIoT Cloud to control devices. The device reacts and responds after receiving the downstream message sent forward by MIoT Cloud.
 

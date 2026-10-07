@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "Gerätestatusänderungen anzeigen",
                     "update_trans_rules": "Entitätskonvertierungsregeln aktualisieren",
                     "update_lan_ctrl_config": "LAN-Steuerungskonfiguration aktualisieren",
+                    "update_cloud_poll_config": "Cloud-Statusabfrage aktualisieren",
                     "network_detect_config": "Integrierte Netzwerkkonfiguration",
                     "cover_dead_zone_width": "Die Breite des toten Winkels des Vorhangs"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "Geräte filtern",
                     "device_list": "Geräteliste",
                     "statistics_logic": "Statistiklogik"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "Cloud-Statusabfrage",
+                "description": "Wähle Geräte aus, deren Entitätseigenschaften regelmäßig über die Xiaomi Cloud aktualisiert werden sollen. WLAN- und Bluetooth-Geräte werden unterstützt, der zurückgegebene Wert ist jedoch der letzte der Xiaomi Cloud bekannte Status und möglicherweise keine direkte Echtzeitmessung.\r\n\r\nDas Abfrageintervall muss zwischen {min_interval} und {max_interval} Sekunden liegen.",
+                "data": {
+                    "cloud_poll_device_ids": "Abzufragende Geräte",
+                    "cloud_poll_interval": "Abfrageintervall (Sekunden)"
                 }
             },
             "update_trans_rules": {

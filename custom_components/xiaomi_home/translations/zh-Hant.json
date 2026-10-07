@@ -124,6 +124,7 @@
                     "display_devices_changed_notify": "顯示設備狀態變化通知",
                     "update_trans_rules": "更新實體轉換規則",
                     "update_lan_ctrl_config": "更新局域網控制配置",
+                    "update_cloud_poll_config": "更新雲端狀態輪詢配置",
                     "network_detect_config": "集成網絡配置",
                     "cover_dead_zone_width": "窗簾盲區寬度"
                 }
@@ -157,6 +158,14 @@
                     "devices_filter_mode": "篩選設備",
                     "device_list": "設備列表",
                     "statistics_logic": "統計邏輯"
+                }
+            },
+            "cloud_poll_config": {
+                "title": "雲端狀態輪詢",
+                "description": "預設關閉。請選擇需要雲端補償屬性推送遺漏的設備，清空設備選擇即可停用輪詢。此功能讀取可讀實體屬性的小米雲快取狀態，不是設備即時直接讀取，也不能恢復事件。雲端快取可能覆蓋較新的本地或推送值。\r\n\r\n所選設備共用一個間隔，必須介於 {min_interval} 到 {max_interval} 秒。",
+                "data": {
+                    "cloud_poll_device_ids": "需要輪詢的設備",
+                    "cloud_poll_interval": "輪詢間隔（秒）"
                 }
             },
             "update_trans_rules": {

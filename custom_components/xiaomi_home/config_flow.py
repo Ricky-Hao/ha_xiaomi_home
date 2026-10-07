@@ -72,6 +72,9 @@ from homeassistant.helpers.instance_id import async_get
 import homeassistant.helpers.config_validation as cv
 
 from .miot.const import (
+    CONF_CLOUD_POLL_DEVICE_IDS,
+    CONF_CLOUD_POLL_INTERVAL,
+    DEFAULT_CLOUD_POLL_INTERVAL,
     DEFAULT_CLOUD_SERVER,
     DEFAULT_CTRL_MODE,
     DEFAULT_INTEGRATION_LANGUAGE,
@@ -89,7 +92,9 @@ from .miot.const import (
     INTEGRATION_LANGUAGES,
     SUPPORT_CENTRAL_GATEWAY_CTRL,
     NETWORK_REFRESH_INTERVAL,
-    MIHOME_CERT_EXPIRE_MARGIN
+    MIHOME_CERT_EXPIRE_MARGIN,
+    MIN_CLOUD_POLL_INTERVAL,
+    MAX_CLOUD_POLL_INTERVAL
 )
 from .miot.miot_cloud import MIoTHttpClient, MIoTOauthClient
 from .miot.common import get_system_info_str
@@ -1018,6 +1023,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     _display_binary_mode: list[str]
     _display_devs_notify: list[str]
     _cover_dz_width: int
+    _cloud_poll_device_ids: list[str]
+    _cloud_poll_interval: int
 
     _oauth_redirect_url_full: str
     _auth_info: dict
@@ -1036,9 +1043,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     _update_devices: bool
     _update_trans_rules: bool
     _opt_lan_ctrl_cfg: bool
+    _opt_cloud_poll_cfg: bool
     _opt_network_detect_cfg: bool
     _opt_check_network_deps: bool
     _cover_width_new: int
+    _cloud_poll_device_ids_new: list[str]
+    _cloud_poll_interval_new: int
 
     _trans_rules_count: int
     _trans_rules_count_success: int
@@ -1080,6 +1090,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self._home_selected_list = list(
             self._entry_data['home_selected'].keys())
         self._devices_filter = self._entry_data.get('devices_filter', {})
+        self._cloud_poll_device_ids = self._entry_data.get(
+            CONF_CLOUD_POLL_DEVICE_IDS, [])
+        self._cloud_poll_interval = self._entry_data.get(
+            CONF_CLOUD_POLL_INTERVAL, DEFAULT_CLOUD_POLL_INTERVAL)
 
         self._oauth_redirect_url_full = ''
         self._auth_info = {}
@@ -1095,10 +1109,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self._hide_non_standard_entities_new = False
         self._display_binary_mode_new = []
         self._cover_width_new = self._cover_dz_width
+        self._cloud_poll_device_ids_new = list(self._cloud_poll_device_ids)
+        self._cloud_poll_interval_new = self._cloud_poll_interval
         self._update_user_info = False
         self._update_devices = False
         self._update_trans_rules = False
         self._opt_lan_ctrl_cfg = False
+        self._opt_cloud_poll_cfg = False
         self._opt_network_detect_cfg = False
         self._opt_check_network_deps = False
         self._trans_rules_count = 0
@@ -1356,6 +1373,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         'update_lan_ctrl_config',
                         default=self._opt_lan_ctrl_cfg  # type: ignore
                     ): bool,
+                    vol.Required(
+                        'update_cloud_poll_config',
+                        default=self._opt_cloud_poll_cfg  # type: ignore
+                    ): bool,
                     # Entity info configure
                     vol.Required(
                         'action_debug',
@@ -1413,6 +1434,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             'update_trans_rules', self._update_trans_rules)
         self._opt_lan_ctrl_cfg = user_input.get(
             'update_lan_ctrl_config', self._opt_lan_ctrl_cfg)
+        self._opt_cloud_poll_cfg = user_input.get(
+            'update_cloud_poll_config', self._opt_cloud_poll_cfg)
         self._opt_network_detect_cfg = user_input.get(
             'network_detect_config', self._opt_network_detect_cfg)
         self._cover_width_new = user_input.get(
@@ -1739,7 +1762,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_update_trans_rules(self, user_input=None):
         if not self._update_trans_rules:
-            return await self.async_step_update_lan_ctrl_config()
+            return await self.async_step_cloud_poll_config()
         urn_list: list[str] = list({
             info['urn']
             for info in list(self._miot_client.device_list.values())
@@ -1771,6 +1794,53 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # SKIP update trans rules
             self._update_trans_rules = False
 
+        return await self.async_step_cloud_poll_config()
+
+    async def async_step_cloud_poll_config(self, user_input=None):
+        devices = (
+            self._device_list_sorted
+            if self._update_devices
+            else self._miot_client.device_list)
+        device_list = {
+            did: (
+                f'[ {info["home_name"]} {info["room_name"]} ] '
+                f'{info["name"]}, {did}')
+            for did, info in devices.items()}
+        valid_dids = set(device_list)
+        self._cloud_poll_device_ids_new = [
+            did for did in self._cloud_poll_device_ids_new
+            if did in valid_dids]
+        if not self._opt_cloud_poll_cfg:
+            return await self.async_step_update_lan_ctrl_config()
+        if not user_input:
+            return self.async_show_form(
+                step_id='cloud_poll_config',
+                data_schema=vol.Schema({
+                    vol.Optional(
+                        CONF_CLOUD_POLL_DEVICE_IDS,
+                        description={
+                            'suggested_value': self._cloud_poll_device_ids_new}
+                    ): cv.multi_select(dict(sorted(
+                        device_list.items(), key=lambda device: device[1]))),
+                    vol.Required(
+                        CONF_CLOUD_POLL_INTERVAL,
+                        default=self._cloud_poll_interval_new
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_CLOUD_POLL_INTERVAL,
+                            max=MAX_CLOUD_POLL_INTERVAL)),
+                }),
+                description_placeholders={
+                    'min_interval': str(MIN_CLOUD_POLL_INTERVAL),
+                    'max_interval': str(MAX_CLOUD_POLL_INTERVAL),
+                },
+                last_step=False,
+            )
+        self._cloud_poll_device_ids_new = user_input.get(
+            CONF_CLOUD_POLL_DEVICE_IDS, [])
+        self._cloud_poll_interval_new = user_input.get(
+            CONF_CLOUD_POLL_INTERVAL, DEFAULT_CLOUD_POLL_INTERVAL)
         return await self.async_step_update_lan_ctrl_config()
 
     async def async_step_update_lan_ctrl_config(self, user_input=None):
@@ -1989,7 +2059,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         if key in trans_devs_display)
                         if self._display_devs_notify
                         else self._miot_i18n.translate(
-                            key='config.other.no_display'))
+                            key='config.other.no_display')),
                 },  # type: ignore
                 errors={'base': 'not_confirm'} if user_input else {},
                 last_step=True
@@ -2033,6 +2103,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if set(self._display_binary_mode) != set(self._display_binary_mode_new):
             self._entry_data['display_binary_mode'] = (
                 self._display_binary_mode_new)
+            self._need_reload = True
+        if (
+            set(self._cloud_poll_device_ids) !=
+            set(self._cloud_poll_device_ids_new)
+        ):
+            self._entry_data[CONF_CLOUD_POLL_DEVICE_IDS] = (
+                self._cloud_poll_device_ids_new)
+            self._need_reload = True
+        if self._cloud_poll_interval != self._cloud_poll_interval_new:
+            self._entry_data[CONF_CLOUD_POLL_INTERVAL] = (
+                self._cloud_poll_interval_new)
             self._need_reload = True
         # Update display_devices_changed_notify
         self._entry_data['display_devices_changed_notify'] = (
